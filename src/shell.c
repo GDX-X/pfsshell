@@ -4,6 +4,14 @@
 #include <string.h>
 #include <unistd.h>
 #include <stdbool.h>
+#include <stdint.h>
+#include <inttypes.h>
+#include <sys/stat.h>
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <time.h>
+#endif
 
 #include "util.h"
 #include "iomanX_port.h"
@@ -600,6 +608,24 @@ static int do_get(context_t *ctx, int argc, char *argv[])
     return (result);
 }
 
+static uint64_t progress_millis(void)
+{
+#ifdef _WIN32
+    return GetTickCount64();
+#else
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return (uint64_t)now.tv_sec * 1000 + now.tv_nsec / 1000000;
+#endif
+}
+
+static void put_progress(const char *event, uint64_t done, uint64_t total)
+{
+    /* Leading newline also separates a prompt when stdout/stderr are merged. */
+    printf("\n%s %" PRIu64 " %" PRIu64 "\n", event, done, total);
+    fflush(stdout);
+}
+
 static int do_put(context_t *ctx, int argc, char *argv[])
 {
     int result = 0;
@@ -618,10 +644,26 @@ static int do_put(context_t *ctx, int argc, char *argv[])
 #endif
     );
     if (in != -1) {
+#ifdef _WIN32
+        struct _stat64 info;
+        int stat_result = _fstat64(in, &info);
+#else
+        struct stat info;
+        int stat_result = fstat(in, &info);
+#endif
+        if (stat_result != 0 || info.st_size < 0) {
+            perror(argv[1]);
+            close(in);
+            put_progress("PFS_ERROR", 0, 0);
+            return -1;
+        }
+        uint64_t total = (uint64_t)info.st_size, done = 0;
         int out = iomanX_open(tmp, FIO_O_WRONLY | FIO_O_CREAT, 0666);
         if (out >= 0) {
             char buf[8 * 4096]; /* bigger buffer performs better via network */
             ssize_t len;
+            uint64_t last_report = progress_millis();
+            put_progress("PFS_PROGRESS", 0, total);
             while ((len = read(in, buf, sizeof(buf))) > 0) {
                 result = iomanX_write(out, buf, len);
                 if (result != len) {
@@ -633,13 +675,34 @@ static int do_put(context_t *ctx, int argc, char *argv[])
                     result = -1;
                     break;
                 }
+                done += (uint64_t)result;
+                result = 0;
+                uint64_t now = progress_millis();
+                if (now - last_report >= 150) {
+                    put_progress("PFS_PROGRESS", done, total);
+                    last_report = now;
+                }
             }
-            result = iomanX_close(out);
+            if (len < 0) {
+                perror(argv[1]);
+                result = -1;
+            }
+            int close_result = iomanX_close(out);
+            if (close_result < 0) {
+                fprintf(stderr, "(!) close %s: %s.\n", tmp, strerror(-close_result));
+                result = close_result;
+            }
+            if (result == 0 && done != total) {
+                fprintf(stderr, "(!) Source size changed during put.\n");
+                result = -1;
+            }
+            put_progress(result == 0 ? "PFS_DONE" : "PFS_ERROR", done, total);
         } else
-            fprintf(stderr, "(!) %s: %s.\n", tmp, strerror(-out)), result = out;
+            fprintf(stderr, "(!) %s: %s.\n", tmp, strerror(-out)), result = out,
+                put_progress("PFS_ERROR", 0, total);
         (void)close(in);
     } else
-        perror(argv[1]), result = -1;
+        perror(argv[1]), result = -1, put_progress("PFS_ERROR", 0, 0);
     return (result);
 }
 
