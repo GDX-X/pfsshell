@@ -11,7 +11,9 @@
         "**.in",
         "**.yml",
         ".gitmodules",
-        "external/**"
+        "external/**",
+        "meson_options.txt",
+        "test/**"
       ]
     },
     "pull_request": {
@@ -24,10 +26,21 @@
         "**.in",
         "**.yml",
         ".gitmodules",
-        "external/**"
+        "external/**",
+        "meson_options.txt",
+        "test/**"
       ]
     },
-    "workflow_dispatch": {}
+    "workflow_dispatch": {
+      "inputs": {
+        "full_build": {
+          "description": "Also run the original Linux/macOS/FUSE builds and release jobs",
+          "type": "boolean",
+          "default": false,
+          "required": false
+        }
+      }
+    }
   },
   "env": {
     "CMAKE_GENERATOR": "Ninja",
@@ -52,19 +65,19 @@
           "run": "apt-get -y update\napt-get -y -o Dpkg::Options::='--force-confdef' -o Dpkg::Options::='--force-confold' install build-essential expect pkg-config fuse libfuse-dev git time p7zip-full\n"
         },
         {
-          "uses": "actions/checkout@v3",
+          "uses": "actions/checkout@v4",
           "with": {
             "submodules": "recursive"
           }
         },
         {
-          "uses": "actions/setup-python@v3",
+          "uses": "actions/setup-python@v5",
           "with": {
             "python-version": "3.13.3"
           }
         },
         {
-          "uses": "actions/cache@v3",
+          "uses": "actions/cache@v4",
           "with": {
             "path": "~/.cache/pip",
             "key": "${{ runner.os }}-pip",
@@ -100,50 +113,41 @@
             "path": "build/pfsfuse"
           }
         }
-      ]
+      ],
+      "if": "github.event_name == 'workflow_dispatch' && inputs.full_build"
     },
     "build-win32": {
-      "runs-on": "ubuntu-latest",
-      "timeout-minutes": 20,
-      "container": {
-        "image": "ubuntu:20.04",
-        "options": "--user 0"
-      },
+      "name": "Build Windows x86",
+      "runs-on": "ubuntu-24.04",
+      "timeout-minutes": 15,
       "steps": [
         {
-          "run": "apt-get -y update\napt-get -y -o Dpkg::Options::='--force-confdef' -o Dpkg::Options::='--force-confold' install build-essential mingw-w64 git p7zip-full\nupdate-alternatives --set i686-w64-mingw32-gcc /usr/bin/i686-w64-mingw32-gcc-posix\nupdate-alternatives --set i686-w64-mingw32-g++ /usr/bin/i686-w64-mingw32-g++-posix\n"
-        },
-        {
-          "uses": "actions/checkout@v3",
+          "uses": "actions/checkout@v4",
           "with": {
-            "submodules": "recursive"
+            "submodules": "recursive",
+            "persist-credentials": false
           }
         },
         {
-          "uses": "actions/setup-python@v3",
+          "uses": "actions/setup-python@v5",
           "with": {
-            "python-version": "3.13.3"
+            "python-version": "3.13"
           }
         },
         {
-          "uses": "actions/cache@v3",
-          "with": {
-            "path": "~/.cache/pip",
-            "key": "${{ runner.os }}-pip",
-            "restore-keys": "${{ runner.os }}-pip\n"
-          }
+          "name": "Install build tools",
+          "run": "sudo apt-get update\nsudo apt-get install -y gcc-mingw-w64-i686-posix g++-mingw-w64-i686-posix p7zip-full\npython -m pip install meson==1.11.2 ninja==1.13.2"
         },
         {
-          "run": "python -m pip install --upgrade meson ninja"
-        },
-        {
-          "run": "meson setup build/ -Denable_pfs2tar=true --cross-file ./external/meson_toolchains/mingw32_meson.ini\nmeson compile -C build archive\n"
+          "name": "Compile Windows binaries",
+          "run": "meson setup build --buildtype=release -Denable_pfs2tar=true --cross-file external/meson_toolchains/mingw32_meson.ini\nmeson compile -C build\nmeson compile -C build archive"
         },
         {
           "uses": "actions/upload-artifact@v4",
           "with": {
             "name": "pfsshell-win32",
-            "path": "build/*.7z"
+            "if-no-files-found": "error",
+            "path": "build/pfsshell.exe\nbuild/pfs2tar.exe\nbuild/libps2hdd.dll\nbuild/*.7z\nCOPYING\nCOPYING.AFLv2\nREADME.md"
           }
         }
       ]
@@ -168,7 +172,7 @@
           }
         },
         {
-          "uses": "actions/checkout@v3",
+          "uses": "actions/checkout@v4",
           "with": {
             "submodules": "recursive"
           }
@@ -188,26 +192,27 @@
             "path": "build/pfsfuse.exe\nbuild/libdokanfuse*.dll\nbuild/license.lgpl.txt\n"
           }
         }
-      ]
+      ],
+      "if": "github.event_name == 'workflow_dispatch' && inputs.full_build"
     },
     "build-macos": {
       "runs-on": "macos-latest",
       "timeout-minutes": 20,
       "steps": [
         {
-          "uses": "actions/checkout@v3",
+          "uses": "actions/checkout@v4",
           "with": {
             "submodules": "recursive"
           }
         },
         {
-          "uses": "actions/setup-python@v3",
+          "uses": "actions/setup-python@v5",
           "with": {
             "python-version": "3.x"
           }
         },
         {
-          "uses": "actions/cache@v3",
+          "uses": "actions/cache@v4",
           "with": {
             "path": "~/.cache/pip",
             "key": "${{ runner.os }}-pip",
@@ -244,14 +249,16 @@
             "path": "build/pfsfuse"
           }
         }
-      ]
+      ],
+      "if": "github.event_name == 'workflow_dispatch' && inputs.full_build"
     },
     "create-release": {
       "needs": [
         "build-ubuntu",
         "build-win32",
         "build-macos",
-        "build-pfsfuse-win32"
+        "build-pfsfuse-win32",
+        "test-win32"
       ],
       "runs-on": "ubuntu-latest",
       "timeout-minutes": 20,
@@ -295,7 +302,44 @@
             "files": "pfsshell-win32/*\npfsfuse-win32.zip\npfsshell-ubuntu.zip\npfsshell-macos.zip\npfsfuse-ubuntu.zip\npfsfuse-macos.zip\n"
           }
         }
+      ],
+      "permissions": {
+        "contents": "write"
+      }
+    },
+    "test-win32": {
+      "name": "Test Windows transfers",
+      "runs-on": "windows-2022",
+      "needs": "build-win32",
+      "timeout-minutes": 10,
+      "steps": [
+        {
+          "uses": "actions/checkout@v4",
+          "with": {
+            "persist-credentials": false
+          }
+        },
+        {
+          "uses": "actions/setup-python@v5",
+          "with": {
+            "python-version": "3.13"
+          }
+        },
+        {
+          "uses": "actions/download-artifact@v4",
+          "with": {
+            "name": "pfsshell-win32",
+            "path": "artifacts"
+          }
+        },
+        {
+          "name": "Verify copy, readback and error reporting",
+          "run": "python test/progress_image.py artifacts/build/pfsshell.exe"
+        }
       ]
     }
+  },
+  "permissions": {
+    "contents": "read"
   }
 }
