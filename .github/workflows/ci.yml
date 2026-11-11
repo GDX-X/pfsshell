@@ -334,7 +334,7 @@
         },
         {
           "name": "Verify copy, readback and error reporting",
-          "run": "python test/progress_image.py artifacts/build/pfsshell.exe"
+          "run": "python test/progress_image.py artifacts/build/pfsshell.exe\npython test/rename_image.py artifacts/build/pfsshell.exe"
         }
       ]
     }

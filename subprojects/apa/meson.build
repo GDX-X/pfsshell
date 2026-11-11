@@ -18,9 +18,17 @@ libapa_inc = [
 	include_directories('include'),
 	include_directories('irx'),
 ]
+# Keep the upstream submodule pinned; generate our corrected driver in build/.
+python = import('python').find_installation()
+patched_hdd_fio = configure_file(
+  input: 'irx/hdd_fio.c',
+  output: 'hdd_fio.c',
+  command: [python, files('patch_rename.py'), '@INPUT@', '@OUTPUT@'],
+)
+
 libapa_src = [
 	'_init.c',
-	'irx/hdd_fio.c',
+	patched_hdd_fio,
 	'irx/hdd_blkio.c',
 	'irx/hdd.c',
 	'src/apa.c',

@@ -179,7 +179,9 @@ meson compile -C build/
 
 ## Upload progress
 
-In a terminal, `put` updates a single line in place: `Transfer: 42%`.
+In a terminal, `put` updates a single line in place: `Transfer: 42% | 12.34 MB/s`.
+The speed is the average for the current file (1 MB = 1,000,000 bytes),
+reset for each `put`, and includes the final close/flush.
 The line ends after completion or failure; 100% is shown only after a successful
 file close. When stdout is redirected or piped into another application, pfsshell
 instead emits flushed `PFS_PROGRESS`, `PFS_DONE`, and `PFS_ERROR` records with

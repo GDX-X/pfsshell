@@ -620,7 +620,7 @@ static uint64_t progress_millis(void)
 #endif
 }
 
-static void put_progress(const char *event, uint64_t done, uint64_t total)
+static void put_progress(const char *event, uint64_t done, uint64_t total, uint64_t started_ms)
 {
 #ifdef _WIN32
     int terminal = _isatty(_fileno(stdout));
@@ -633,7 +633,10 @@ static void put_progress(const char *event, uint64_t done, uint64_t total)
         unsigned int percent = total ? (unsigned int)((long double)done / total * 100) : 0;
         /* Only a successful close completes the transfer, including empty files. */
         percent = finished ? 100 : (percent > 99 ? 99 : percent);
-        printf("\rTransfer: %3u%%%s", percent,
+        uint64_t elapsed_ms = progress_millis() - started_ms;
+        /* Average throughput for this file, in decimal megabytes per second. */
+        double mb_per_second = elapsed_ms ? (double)done / elapsed_ms / 1000.0 : 0.0;
+        printf("\rTransfer: %3u%% | %10.2f MB/s%s", percent, mb_per_second,
                failed ? " (failed)\n" : (finished ? "\n" : ""));
     } else {
         /* Preserve the line protocol consumed by GUI callers over pipes. */
@@ -645,6 +648,7 @@ static void put_progress(const char *event, uint64_t done, uint64_t total)
 static int do_put(context_t *ctx, int argc, char *argv[])
 {
     int result = 0;
+    uint64_t started_ms = progress_millis();
     char tmp[256];
     strcpy(tmp, "pfs0:");
     strcat(tmp, ctx->path);
@@ -670,7 +674,7 @@ static int do_put(context_t *ctx, int argc, char *argv[])
         if (stat_result != 0 || info.st_size < 0) {
             perror(argv[1]);
             close(in);
-            put_progress("PFS_ERROR", 0, 0);
+            put_progress("PFS_ERROR", 0, 0, started_ms);
             return -1;
         }
         uint64_t total = (uint64_t)info.st_size, done = 0;
@@ -679,7 +683,7 @@ static int do_put(context_t *ctx, int argc, char *argv[])
             char buf[8 * 4096]; /* bigger buffer performs better via network */
             ssize_t len;
             uint64_t last_report = progress_millis();
-            put_progress("PFS_PROGRESS", 0, total);
+            put_progress("PFS_PROGRESS", 0, total, started_ms);
             while ((len = read(in, buf, sizeof(buf))) > 0) {
                 result = iomanX_write(out, buf, len);
                 if (result != len) {
@@ -695,7 +699,7 @@ static int do_put(context_t *ctx, int argc, char *argv[])
                 result = 0;
                 uint64_t now = progress_millis();
                 if (now - last_report >= 150) {
-                    put_progress("PFS_PROGRESS", done, total);
+                    put_progress("PFS_PROGRESS", done, total, started_ms);
                     last_report = now;
                 }
             }
@@ -712,13 +716,13 @@ static int do_put(context_t *ctx, int argc, char *argv[])
                 fprintf(stderr, "(!) Source size changed during put.\n");
                 result = -1;
             }
-            put_progress(result == 0 ? "PFS_DONE" : "PFS_ERROR", done, total);
+            put_progress(result == 0 ? "PFS_DONE" : "PFS_ERROR", done, total, started_ms);
         } else
             fprintf(stderr, "(!) %s: %s.\n", tmp, strerror(-out)), result = out,
-                put_progress("PFS_ERROR", 0, total);
+                put_progress("PFS_ERROR", 0, total, started_ms);
         (void)close(in);
     } else
-        perror(argv[1]), result = -1, put_progress("PFS_ERROR", 0, 0);
+        perror(argv[1]), result = -1, put_progress("PFS_ERROR", 0, 0, started_ms);
     return (result);
 }
 
