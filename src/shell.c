@@ -8,6 +8,7 @@
 #include <inttypes.h>
 #include <sys/stat.h>
 #ifdef _WIN32
+#include <io.h>
 #include <windows.h>
 #else
 #include <time.h>
@@ -621,8 +622,23 @@ static uint64_t progress_millis(void)
 
 static void put_progress(const char *event, uint64_t done, uint64_t total)
 {
-    /* Leading newline also separates a prompt when stdout/stderr are merged. */
-    printf("\n%s %" PRIu64 " %" PRIu64 "\n", event, done, total);
+#ifdef _WIN32
+    int terminal = _isatty(_fileno(stdout));
+#else
+    int terminal = isatty(fileno(stdout));
+#endif
+    if (terminal) {
+        int finished = strcmp(event, "PFS_DONE") == 0;
+        int failed = strcmp(event, "PFS_ERROR") == 0;
+        unsigned int percent = total ? (unsigned int)((long double)done / total * 100) : 0;
+        /* Only a successful close completes the transfer, including empty files. */
+        percent = finished ? 100 : (percent > 99 ? 99 : percent);
+        printf("\rTransfer: %3u%%%s", percent,
+               failed ? " (failed)\n" : (finished ? "\n" : ""));
+    } else {
+        /* Preserve the line protocol consumed by GUI callers over pipes. */
+        printf("\n%s %" PRIu64 " %" PRIu64 "\n", event, done, total);
+    }
     fflush(stdout);
 }
 

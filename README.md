@@ -177,6 +177,14 @@ meson setup build/
 meson compile -C build/
 ```
 
+## Upload progress
+
+In a terminal, `put` updates a single line in place: `Transfer: 42%`.
+The line ends after completion or failure; 100% is shown only after a successful
+file close. When stdout is redirected or piped into another application, pfsshell
+instead emits flushed `PFS_PROGRESS`, `PFS_DONE`, and `PFS_ERROR` records with
+written and total byte counts, preserving the GUI progress protocol.
+
 ## Original project
 
 The original project was created by Wizard of Oz. More information about the original project can be found at the following location:
