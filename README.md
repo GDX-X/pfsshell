@@ -198,3 +198,15 @@ This project as a whole is licensed under the GNU General Public License GPL
 version 2. Please read the `COPYING` file for more information.
 The APA, PFS, and iomanX libraries are licensed under The Academic Free
 License version 2. Please read the `COPYING.AFLv2` file for more information.
+
+## Persistent sessions and exact space
+
+Keep one process and device open while mounting partitions in sequence. Each successful
+`mount` resets the working directory to `/`; use `umount` before the next mount and
+`exit` once at the end. Standard streams are unbuffered for interactive pipe clients.
+
+On a mounted PFS partition, `df64` prints `PFS_SPACE_V1 <total_bytes> <available_bytes>`
+using 64-bit byte counts. The existing `df` command remains available.
+
+Run the image regression with `python test/session_image.py /path/to/pfsshell`.
+It creates its own disposable image and never accesses a physical disk.

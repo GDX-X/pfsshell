@@ -167,6 +167,26 @@ static int do_lcd(context_t *ctx, int argc, char *argv[])
         /* chdir would set errno on error */
         return (chdir(argv[1]));
 }
+static int do_df64(context_t *ctx, int argc, char *argv[])
+{
+    iox_stat_t stat;
+    int result = iomanX_getstat(ctx->mount_point, &stat);
+    if (result < 0)
+        return result;
+    int zone_size = iomanX_devctl("pfs0:", PDIOC_ZONESZ, NULL, 0, NULL, 0);
+    int free_zones = iomanX_devctl("pfs0:", PDIOC_ZONEFREE, NULL, 0, NULL, 0);
+    uint64_t sectors = ((uint64_t)stat.private_2 << 32) | stat.private_1;
+    uint64_t overhead = (uint64_t)stat.private_0 * 4 + 8192;
+    if (zone_size <= 0 || free_zones < 0 || sectors <= overhead)
+        return -EIO;
+    uint64_t total = (sectors - overhead) * 512;
+    uint64_t available = (uint64_t)zone_size * (uint64_t)free_zones;
+    if (available > total)
+        return -EIO;
+    printf("PFS_SPACE_V1 %" PRIu64 " %" PRIu64 "\n", total, available);
+    return 0;
+}
+
 static int do_df(context_t *ctx, int argc, char *argv[])
 {
     char tmp[256];
@@ -484,6 +504,8 @@ static int do_mount(context_t *ctx, int argc, char *argv[])
     int result = iomanX_mount("pfs0:", ctx->mount_point, 0, NULL, 0);
     if (result >= 0) {
         ctx->mount = 1;
+        /* Each partition has its own root; do not retain the previous mount's cwd. */
+        strcpy(ctx->path, "/");
         return (0);
     } else {
         fprintf(stderr, "(!) %s: %s.\n", ctx->mount_point, strerror(-result));
@@ -796,6 +818,7 @@ static int do_help(context_t *ctx, int argc, char *argv[])
         "rename <curr_name> <new_name> - rename a file/dir/partition.\n"
         "rmpart <part_name> - remove partition (destructive).\n"
         "df - no mount: display free space on the whole HDD; mount: display free space on partition.\n"
+        "df64 - mounted partition: exact total and available bytes (PFS_SPACE_V1).\n"
         "exit/quit/bye - exits the program. (Do this before you unplug your HDD)\n",
         stderr);
     return (0);
@@ -834,6 +857,7 @@ static int exec(void *data, int argc, char *argv[])
         {"rm", 1, need_device + need_mount, &do_rm},
         {"rmpart", 1, need_device, &do_rmpart},
         {"df", 0, need_device, &do_df},
+        {"df64", 0, need_mount, &do_df64},
         {"rename", 2, need_device, &do_rename},
         {"help", 0, no_req, &do_help},
     };
